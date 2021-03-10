@@ -6,6 +6,7 @@ import com.amazonaws.services.rekognition.model.*
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Result
+import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -26,7 +27,7 @@ fun main() {
     val objects = result.objectSummaries
 
     val latch = CountDownLatch(objects.size)
-    val pool = Executors.newFixedThreadPool(10)
+    val pool = Executors.newFixedThreadPool(20)
 
     val m = ConcurrentHashMap<String, List<Label>>()
 
@@ -46,9 +47,12 @@ fun main() {
     println("done")
 
     println("size=${m.size}")
-    // latch.await()
-
-    // TODO(mlesniak) store it in some database for future processing
+    val om = ObjectMapper()
+    for ((k, o) in m) {
+        val json = om.writeValueAsString(o)
+        println("$k -> $json")
+        s3.putObject(bucket, "test.json/$k.json", json)
+    }
 }
 
 fun categorize(bucket: String, name: String): List<Label> {

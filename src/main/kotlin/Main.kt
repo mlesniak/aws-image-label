@@ -1,12 +1,14 @@
 
 import com.amazonaws.regions.Regions
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
+import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.rekognition.AmazonRekognition
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder
 import com.amazonaws.services.rekognition.model.*
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Result
-import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -47,11 +49,26 @@ fun main() {
     println("done")
 
     println("size=${m.size}")
-    val om = ObjectMapper()
+
+    val  ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
+
+    // val om = ObjectMapper()
     for ((k, o) in m) {
-        val json = om.writeValueAsString(o)
-        println("$k -> $json")
-        s3.putObject(bucket, "test.json/$k.json", json)
+        // val json = om.writeValueAsString(o)
+        // println("$k -> $json")
+        // s3.putObject(bucket, "test.json/$k.json", json)
+
+        for (l in o) {
+            val mm = java.util.HashMap<String, AttributeValue>()
+            mm["label"] = AttributeValue(l.name)
+            val item = ddb.getItem("photos", mm)
+            println("${l.name} -> ${item.toString()}")
+
+            // item.item["String"].l // TODO(mlesniak) continue here
+
+            // ddb.putItem("photos", )
+
+        }
     }
 }
 

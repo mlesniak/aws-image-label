@@ -14,4 +14,5 @@ dependencies {
 
     implementation platform('com.amazonaws:aws-java-sdk-bom:1.11.837')
     implementation 'com.amazonaws:aws-java-sdk-s3'
+    implementation 'com.amazonaws:aws-java-sdk-rekognition'
 }

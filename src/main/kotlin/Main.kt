@@ -6,6 +6,11 @@ import com.amazonaws.services.rekognition.model.*
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Result
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 
 fun main() {
@@ -14,62 +19,53 @@ fun main() {
         .withRegion(Regions.EU_CENTRAL_1)
         .build()
 
-    // val buckets: List<Bucket> = s3.listBuckets()
-    // println("Your Amazon S3 buckets are:")
-    // for (b in buckets) {
-    //     println("* ${b.name}")
-    // }
 
     val bucket = "com.mlesniak.photos"
     val prefix = "test/"
     val result: ListObjectsV2Result = s3.listObjectsV2(bucket, prefix)
     val objects = result.objectSummaries
+
+    val latch = CountDownLatch(objects.size)
+    val pool = Executors.newFixedThreadPool(10)
+
+    val m = ConcurrentHashMap<String, List<Label>>()
+
+    val ai = AtomicInteger(0)
     for (os in objects) {
-        println("* " + os.key)
-        categorize(bucket, os.key)
+        pool.submit {
+            val a = ai.incrementAndGet()
+            println("* ${os.key} ->$a")
+            m.put(os.key, categorize(bucket, os.key))
+            latch.countDown()
+        }
     }
+
+    println("Waiting...")
+    pool.shutdown()
+    pool.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS)
+    println("done")
+
+    println("size=${m.size}")
+    // latch.await()
+
+    // TODO(mlesniak) store it in some database for future processing
 }
 
-fun categorize(bucket: String, name: String) {
-
+fun categorize(bucket: String, name: String): List<Label> {
     val rekognitionClient: AmazonRekognition = AmazonRekognitionClientBuilder.defaultClient()
     val request: DetectLabelsRequest = DetectLabelsRequest()
         .withImage(Image().withS3Object(S3Object().withName(name).withBucket(bucket)))
         .withMaxLabels(10).withMinConfidence(75f)
     try {
         val result: DetectLabelsResult = rekognitionClient.detectLabels(request)
-        val labels: List<Label> = result.getLabels()
-        println("Detected labels for $name\n")
-        for (label in labels) {
-            System.out.println("Label: " + label.getName())
-            System.out.println(
-                """
-                    Confidence: ${label.getConfidence().toString().toString()}
-                    
-                    """.trimIndent()
-            )
-            // val instances: List<Instance> = label.getInstances()
-            // System.out.println("Instances of " + label.getName())
-            // if (instances.isEmpty()) {
-            //     println("  " + "None")
-            // } else {
-            //     for (instance in instances) {
-            //         System.out.println("  Confidence: " + instance.getConfidence().toString())
-            //         System.out.println("  Bounding box: " + instance.getBoundingBox().toString())
-            //     }
-            // }
-            // System.out.println("Parent labels for " + label.getName().toString() + ":")
-            // val parents: List<Parent> = label.getParents()
-            // if (parents.isEmpty()) {
-            //     println("  None")
-            // } else {
-            //     for (parent in parents) {
-            //         System.out.println("  " + parent.getName())
-            //     }
-            // }
-            println("--------------------")
-        }
+        return result.labels
+        // println("* $name")
+        // for (label in labels) {
+        //     println("  Label: ${label.name} / Confidence: ${label.confidence}")
+        // }
     } catch (e: AmazonRekognitionException) {
         e.printStackTrace()
     }
+
+    return listOf()
 }

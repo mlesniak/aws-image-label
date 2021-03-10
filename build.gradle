@@ -11,4 +11,7 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib"
+
+    implementation platform('com.amazonaws:aws-java-sdk-bom:1.11.837')
+    implementation 'com.amazonaws:aws-java-sdk-s3'
 }

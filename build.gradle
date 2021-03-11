@@ -17,6 +17,6 @@ dependencies {
     implementation 'com.amazonaws:aws-java-sdk-rekognition'
     implementation 'com.amazonaws:aws-java-sdk-dynamodb'
 
-//    implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.0.1'
+    implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.0.1'
 //    implementation group: 'javax.xml.bind', name: 'jaxb-api', version: ':2.3.1'
 }

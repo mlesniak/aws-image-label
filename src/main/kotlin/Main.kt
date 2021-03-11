@@ -11,6 +11,11 @@ import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.joda.time.format.ISODateTimeFormat
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -18,6 +23,61 @@ import java.util.concurrent.atomic.AtomicInteger
 
 
 fun main() {
+    val s3: AmazonS3 = AmazonS3ClientBuilder
+        .standard()
+        .withRegion(Regions.EU_CENTRAL_1)
+        .build()
+
+    val years = setOf("2020")
+    val basePath = Path.of("/Users/m/Dropbox/Camera Uploads")
+    val files = Files.list(basePath)
+    var uploadFiles = mutableListOf<String>()
+    for (file in files) {
+        val fname = file.fileName.toString()
+
+        var valid = false
+        for (year in years) {
+            if (fname.startsWith(year) && (fname.endsWith("jpg") || fname.endsWith("png"))) {
+                valid = true
+                break
+            }
+        }
+        if (!valid) {
+            continue
+        }
+
+        uploadFiles.add(fname)
+    }
+    uploadFiles.sort()
+    log("Number of files to upload: ${uploadFiles.size}")
+
+    val pool = Executors.newFixedThreadPool(64)
+    for (filename in uploadFiles) {
+        pool.submit {
+            log("🌍 $filename")
+            val f = File(Paths.get(basePath.toString(), filename).toString())
+            if (!f.exists()) {
+                log("⚡️ Should not happen: $f can not be found")
+            }
+            val result = s3.putObject("com.mlesniak.photos", "photos/$filename", f)
+            log("🥳 $filename")
+        }
+    }
+
+    pool.shutdown()
+    log("... awaiting pool termination")
+    pool.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS)
+
+    log("Finished")
+}
+
+fun log(message: String) {
+    val now = System.currentTimeMillis()
+    val f = ISODateTimeFormat.ordinalDateTime()
+    println("${f.print(now)}\t$message")
+}
+
+fun mainx() {
     val s3: AmazonS3 = AmazonS3ClientBuilder
         .standard()
         .withRegion(Regions.EU_CENTRAL_1)
@@ -32,7 +92,7 @@ fun main() {
     val latch = CountDownLatch(objects.size)
     val pool = Executors.newFixedThreadPool(20)
 
-    val  ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
+    val ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
 
     val om = ObjectMapper()
     val ai = AtomicInteger(0)

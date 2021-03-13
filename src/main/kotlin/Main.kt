@@ -1,7 +1,9 @@
+
 import com.amazonaws.regions.Regions
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
+import com.amazonaws.services.dynamodbv2.model.ScanRequest
 import com.amazonaws.services.rekognition.AmazonRekognition
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder
 import com.amazonaws.services.rekognition.model.*
@@ -12,6 +14,8 @@ import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.amazonaws.services.s3.model.S3ObjectSummary
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.joda.time.format.ISODateTimeFormat
+import spark.ResponseTransformer
+import spark.Spark.get
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +24,9 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+
+
+
 
 
 fun mainx() {
@@ -206,5 +213,51 @@ fun categorize(bucket: String, name: String): List<Label>? {
 }
 
 fun main() {
-    // TODO(mlesniak) small and stupid rest interface...
+    val ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
+
+
+    // get("/labels") { req, res ->
+    //     {
+    //
+    //         val res = ddb.scan(sr)
+    //         var labels = mutableListOf<String>()
+    //         res.items.map { item ->
+    //                 labels.add(item["label"].toString())
+    //         }
+    //         labels
+    //     }
+    // }
+
+    get("/labels", { req, res ->
+        var labels = mutableMapOf<String, Int>()
+        var token = ""
+
+        var global = 0
+        while (true) {
+            var sr = ScanRequest()
+                .withTableName("photos")
+                .withAttributesToGet("label")
+                .withLimit(Int.MAX_VALUE)
+            val res = ddb.scan(sr)
+            res.items.map { item ->
+                val av = item["label"]!!
+                val count = labels.getOrDefault(av.s, 0)
+                labels.put(av.s, count+1)
+                global++
+            }
+            break
+        }
+        println(global)
+
+
+        res.type("application/json")
+        labels
+    }, JsonTransformer())
+}
+
+class JsonTransformer : ResponseTransformer {
+    private val om = ObjectMapper()
+    override fun render(model: Any): String {
+        return om.writeValueAsString(model)
+    }
 }

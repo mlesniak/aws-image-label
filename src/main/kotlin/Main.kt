@@ -1,8 +1,10 @@
-
 import com.amazonaws.regions.Regions
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
+import com.amazonaws.services.dynamodbv2.model.ComparisonOperator
+import com.amazonaws.services.dynamodbv2.model.Condition
+import com.amazonaws.services.dynamodbv2.model.QueryRequest
 import com.amazonaws.services.rekognition.AmazonRekognition
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder
 import com.amazonaws.services.rekognition.model.*
@@ -23,9 +25,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-
-
-
 
 
 fun mainx() {
@@ -272,31 +271,56 @@ fun main() {
         // labels
     }, JsonTransformer())
 
-    // get("/labels/query", { req, res ->
-    //     var labels = mutableMapOf<String, Int>()
-    //     var token = ""
-    //
-    //     var global = 0
-    //     while (true) {
-    //         var sr = ScanRequest()
-    //             .withTableName("photos")
-    //             .withAttributesToGet("filename")
-    //             .withLimit(Int.MAX_VALUE)
-    //         val res = ddb.scan(sr)
-    //         res.items.map { item ->
-    //             val av = item["label"]!!
-    //             val count = labels.getOrDefault(av.s, 0)
-    //             labels.put(av.s, count+1)
-    //             global++
-    //         }
-    //         break
-    //     }
-    //     println(global)
-    //
-    //
-    //     res.type("application/json")
-    //     labels
-    // }, JsonTransformer())
+    get("/labels/query", { req, res ->
+        val slabels = req.queryParamOrDefault("q", "")
+        val labels = slabels.split(",")
+        println(labels)
+
+
+        var all = mutableSetOf<String>()
+
+        // var allFiles = mutableMapOf<String, Set<String>>()
+
+
+        for (queryLabel in labels) {
+            var filenames = mutableSetOf<String>()
+            var last: MutableMap<String, AttributeValue>? = null
+            while (true) {
+                val cond = Condition().withAttributeValueList(AttributeValue(queryLabel))
+                    .withComparisonOperator(ComparisonOperator.EQ)
+                var sr = QueryRequest()
+                    .withTableName("photos")
+                    .withKeyConditions(mapOf("label" to cond))
+
+                if (last != null) {
+                    sr = sr.withExclusiveStartKey(last)
+                }
+
+                val res = ddb.query(sr)
+                res.items.map { item ->
+                    val av = item["filename"]!!
+                    val s = av.s.replace(" ", "+")
+                    val ff = "https://s3.eu-central-1.amazonaws.com/com.mlesniak.photos/${s}"
+                    filenames.add(ff)
+                }
+                if (res.lastEvaluatedKey != null) {
+                    last = res.lastEvaluatedKey
+                } else {
+                    break
+                }
+            }
+
+            all =
+                if (all.isEmpty()) {
+                    filenames
+                } else {
+                    all.intersect(filenames).toMutableSet()
+                }
+        }
+
+        res.type("application/json")
+        all
+    }, JsonTransformer())
 }
 
 class JsonTransformer : ResponseTransformer {

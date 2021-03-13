@@ -27,5 +27,5 @@ dependencies {
     implementation 'javax.xml.bind:jaxb-api:2.4.0-b180830.0359'
 
     implementation "com.sparkjava:spark-kotlin:1.0.0-alpha"
-    implementation 'ch.qos.logback:logback-classic:1.2.3'
+    implementation 'org.slf4j:slf4j-simple:1.7.21'
 }

@@ -1,15 +1,15 @@
-
 import com.amazonaws.regions.Regions
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
-import com.amazonaws.services.dynamodbv2.model.ScanRequest
 import com.amazonaws.services.rekognition.AmazonRekognition
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder
 import com.amazonaws.services.rekognition.model.*
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.ListObjectsV2Request
 import com.amazonaws.services.s3.model.ListObjectsV2Result
+import com.amazonaws.services.s3.model.S3ObjectSummary
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.joda.time.format.ISODateTimeFormat
 import java.io.File
@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 
-fun main() {
+fun mainx() {
     val s3: AmazonS3 = AmazonS3ClientBuilder
         .standard()
         .withRegion(Regions.EU_CENTRAL_1)
@@ -77,7 +77,7 @@ fun log(message: String) {
     println("${f.print(now)}\t$message")
 }
 
-fun mainx() {
+fun identify() {
     val s3: AmazonS3 = AmazonS3ClientBuilder
         .standard()
         .withRegion(Regions.EU_CENTRAL_1)
@@ -85,12 +85,30 @@ fun mainx() {
 
 
     val bucket = "com.mlesniak.photos"
-    val prefix = "test/"
-    val result: ListObjectsV2Result = s3.listObjectsV2(bucket, prefix)
-    val objects = result.objectSummaries
+    val prefix = "photos/"
+
+    var objects = mutableListOf<S3ObjectSummary>()
+
+    var token: String = ""
+    while (true) {
+        var req = ListObjectsV2Request()
+            .withBucketName(bucket)
+            .withPrefix(prefix)
+        if (token != "") {
+            req = req.withContinuationToken(token)
+        }
+
+        val result: ListObjectsV2Result = s3.listObjectsV2(req)
+        objects.addAll(result.objectSummaries)
+        if (!result.isTruncated) {
+            break
+        }
+        token = result.nextContinuationToken
+    }
+
 
     val latch = CountDownLatch(objects.size)
-    val pool = Executors.newFixedThreadPool(20)
+    val pool = Executors.newFixedThreadPool(4)
 
     val ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
 
@@ -99,39 +117,62 @@ fun mainx() {
     for (os in objects) {
         pool.submit {
             val a = ai.incrementAndGet()
-            println("* ${os.key} ->$a")
-            val rs = categorize(bucket, os.key)
-            // val s = om.writeValueAsString(rs)
-            // s3.putObject(bucket, "json/${os.key}.json", s)
+            println("* ${os.key} -> $a")
+            var rs: List<Label>? = null
+            var count = 1
+            while (rs == null) {
+                try {
+                    rs = categorize(bucket, os.key)
+                } catch (e: InvalidImageFormatException) {
+                    log("⚡️ Illegal image format for ${os.key}, aborting")
+                    rs = listOf()
+                    break
+                } catch (e: AmazonRekognitionException) {
+                    log("🕰 Waiting for retry ($count)")
+                    Thread.sleep(5000 + (Math.random() * 1000).toLong())
+                    count++
+                }
+                println("* ${os.key} -> DONE")
+                if (rs == null) {
 
-            for (label in rs) {
+                } else {
+                    if (count > 1) {
+                        log("🥳 Image processed, awesome!")
+                    }
+                }
+            }
+
+            val s = om.writeValueAsString(rs)
+            for (label in rs!!) {
                 val m = mapOf(
-                    "name" to AttributeValue(label.name),
-                    "filename" to AttributeValue(os.key)
+                    "label" to AttributeValue(label.name),
+                    "filename" to AttributeValue(os.key),
+                    "confidence" to AttributeValue().withN(label.confidence.toString()),
+                    "json" to AttributeValue(s)
                 )
-                ddb.putItem("labels", m)
+                ddb.putItem("photos", m)
             }
 
             latch.countDown()
         }
     }
 
-    val now = System.currentTimeMillis()
-    val scanRequest = ScanRequest()
-        .withTableName("labels")
-        .withExpressionAttributeNames(mapOf("#v" to "name"))
-        .withExpressionAttributeValues(mapOf(":k" to AttributeValue("Text")))
-        .withFilterExpression("#v = :k")
-    //     .withSelect()
-    //     .withIndexName("Text")
-    //     // .withExpressionAttributeValues(mapOf(":tag" to AttributeValue("Nature")))
-    //     // .withFilterExpression("name = :tag")
-    val res = ddb.scan(scanRequest)
-    val dur = System.currentTimeMillis() - now
-    println(dur)
-    for (map in res.items) {
-        println("$map")
-    }
+    // val now = System.currentTimeMillis()
+    // val scanRequest = ScanRequest()
+    //     .withTableName("labels")
+    //     .withExpressionAttributeNames(mapOf("#v" to "name"))
+    //     .withExpressionAttributeValues(mapOf(":k" to AttributeValue("Text")))
+    //     .withFilterExpression("#v = :k")
+    // //     .withSelect()
+    // //     .withIndexName("Text")
+    // //     // .withExpressionAttributeValues(mapOf(":tag" to AttributeValue("Nature")))
+    // //     // .withFilterExpression("name = :tag")
+    // val res = ddb.scan(scanRequest)
+    // val dur = System.currentTimeMillis() - now
+    // println(dur)
+    // for (map in res.items) {
+    //     println("$map")
+    // }
 
     // val req = QueryRequest()
     //     .withTableName("labels")
@@ -150,21 +191,20 @@ fun mainx() {
     println("done")
 }
 
-fun categorize(bucket: String, name: String): List<Label> {
+fun categorize(bucket: String, name: String): List<Label>? {
     val rekognitionClient: AmazonRekognition = AmazonRekognitionClientBuilder.defaultClient()
     val request: DetectLabelsRequest = DetectLabelsRequest()
         .withImage(Image().withS3Object(S3Object().withName(name).withBucket(bucket)))
         .withMaxLabels(10).withMinConfidence(75f)
-    try {
-        val result: DetectLabelsResult = rekognitionClient.detectLabels(request)
-        return result.labels
-        // println("* $name")
-        // for (label in labels) {
-        //     println("  Label: ${label.name} / Confidence: ${label.confidence}")
-        // }
-    } catch (e: AmazonRekognitionException) {
-        e.printStackTrace()
-    }
+    val result: DetectLabelsResult = rekognitionClient.detectLabels(request)
+    return result.labels
+    // println("* $name")
+    // for (label in labels) {
+    //     println("  Label: ${label.name} / Confidence: ${label.confidence}")
+    // }
 
-    return listOf()
+}
+
+fun main() {
+    // TODO(mlesniak) small and stupid rest interface...
 }

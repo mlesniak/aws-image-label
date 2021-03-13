@@ -3,7 +3,6 @@ import com.amazonaws.regions.Regions
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
-import com.amazonaws.services.dynamodbv2.model.ScanRequest
 import com.amazonaws.services.rekognition.AmazonRekognition
 import com.amazonaws.services.rekognition.AmazonRekognitionClientBuilder
 import com.amazonaws.services.rekognition.model.*
@@ -230,42 +229,47 @@ fun main() {
     // }
 
     get("/labels", { req, res ->
-        var labels = mutableMapOf<String, Int>()
-        var last: MutableMap<String, AttributeValue>? = null
-
-        var global = 0
-        while (true) {
-            var sr = ScanRequest()
-                .withTableName("photos")
-                .withAttributesToGet("label")
-                .withLimit(Int.MAX_VALUE)
-            if (last != null) {
-                sr = sr.withExclusiveStartKey(last)
-            }
-
-            val res = ddb.scan(sr)
-            println("LAST = ${last}")
-            res.items.map { item ->
-                val av = item["label"]!!
-                val count = labels.getOrDefault(av.s, 0)
-                labels.put(av.s, count+1)
-                global++
-            }
-
-            if (res.lastEvaluatedKey != null) {
-                last = res.lastEvaluatedKey
-            } else {
-                break
-            }
-        }
-        println(global)
-
-        // for once, then load it instead of query
-        val ls = ObjectMapper().writeValueAsString(labels)
-        Files.writeString(Path.of("labels.json"), ls)
-
         res.type("application/json")
-        labels
+        val om = ObjectMapper()
+        om.readValue<Object>(File("labels.json"), Object::class.java)
+        // Files.readString(Path.of("labels.json"))
+
+        // var labels = mutableMapOf<String, Int>()
+        // var last: MutableMap<String, AttributeValue>? = null
+        //
+        // var global = 0
+        // while (true) {
+        //     var sr = ScanRequest()
+        //         .withTableName("photos")
+        //         .withAttributesToGet("label")
+        //         .withLimit(Int.MAX_VALUE)
+        //     if (last != null) {
+        //         sr = sr.withExclusiveStartKey(last)
+        //     }
+        //
+        //     val res = ddb.scan(sr)
+        //     println("LAST = ${last}")
+        //     res.items.map { item ->
+        //         val av = item["label"]!!
+        //         val count = labels.getOrDefault(av.s, 0)
+        //         labels.put(av.s, count+1)
+        //         global++
+        //     }
+        //
+        //     if (res.lastEvaluatedKey != null) {
+        //         last = res.lastEvaluatedKey
+        //     } else {
+        //         break
+        //     }
+        // }
+        // println(global)
+        //
+        // // for once, then load it instead of query
+        // val ls = ObjectMapper().writeValueAsString(labels)
+        // Files.writeString(Path.of("labels.json"), ls)
+        //
+        // res.type("application/json")
+        // labels
     }, JsonTransformer())
 
     // get("/labels/query", { req, res ->

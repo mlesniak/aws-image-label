@@ -84,6 +84,7 @@ fun log(message: String) {
     println("${f.print(now)}\t$message")
 }
 
+// TODO(mlesniak) new table with all label in the futures?
 fun identify() {
     val s3: AmazonS3 = AmazonS3ClientBuilder
         .standard()
@@ -230,7 +231,7 @@ fun main() {
 
     get("/labels", { req, res ->
         var labels = mutableMapOf<String, Int>()
-        var token = ""
+        var last: MutableMap<String, AttributeValue>? = null
 
         var global = 0
         while (true) {
@@ -238,21 +239,60 @@ fun main() {
                 .withTableName("photos")
                 .withAttributesToGet("label")
                 .withLimit(Int.MAX_VALUE)
+            if (last != null) {
+                sr = sr.withExclusiveStartKey(last)
+            }
+
             val res = ddb.scan(sr)
+            println("LAST = ${last}")
             res.items.map { item ->
                 val av = item["label"]!!
                 val count = labels.getOrDefault(av.s, 0)
                 labels.put(av.s, count+1)
                 global++
             }
-            break
+
+            if (res.lastEvaluatedKey != null) {
+                last = res.lastEvaluatedKey
+            } else {
+                break
+            }
         }
         println(global)
 
+        // for once, then load it instead of query
+        val ls = ObjectMapper().writeValueAsString(labels)
+        Files.writeString(Path.of("labels.json"), ls)
 
         res.type("application/json")
         labels
     }, JsonTransformer())
+
+    // get("/labels/query", { req, res ->
+    //     var labels = mutableMapOf<String, Int>()
+    //     var token = ""
+    //
+    //     var global = 0
+    //     while (true) {
+    //         var sr = ScanRequest()
+    //             .withTableName("photos")
+    //             .withAttributesToGet("filename")
+    //             .withLimit(Int.MAX_VALUE)
+    //         val res = ddb.scan(sr)
+    //         res.items.map { item ->
+    //             val av = item["label"]!!
+    //             val count = labels.getOrDefault(av.s, 0)
+    //             labels.put(av.s, count+1)
+    //             global++
+    //         }
+    //         break
+    //     }
+    //     println(global)
+    //
+    //
+    //     res.type("application/json")
+    //     labels
+    // }, JsonTransformer())
 }
 
 class JsonTransformer : ResponseTransformer {

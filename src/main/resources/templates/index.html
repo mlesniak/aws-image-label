@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!--suppress ALL -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Demo</title>
+</head>
+<body>
+
+<div>
+    <span th:each="label: ${labels}">
+        <a th:href="'/?q='+${label}" th:text="${label}"></a>
+    </span>
+</div>
+<hr/>
+
+
+<form action="/">
+    <input type="text" name="label" autofocus>
+    <input type="submit"/>
+</form>
+
+<span th:each="url: ${urls}">
+        <a th:href="${url}">
+            <img th:src="${url}" width="300"/>
+        </a>
+</span>
+
+</body>
+</html>

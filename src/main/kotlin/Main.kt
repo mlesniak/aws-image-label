@@ -1,3 +1,4 @@
+
 import com.amazonaws.regions.Regions
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder
@@ -15,12 +16,16 @@ import com.amazonaws.services.s3.model.ListObjectsV2Result
 import com.amazonaws.services.s3.model.S3ObjectSummary
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.joda.time.format.ISODateTimeFormat
+import spark.ModelAndView
+import spark.Response
 import spark.ResponseTransformer
 import spark.Spark.get
+import spark.template.thymeleaf.ThymeleafTemplateEngine
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -211,26 +216,36 @@ fun categorize(bucket: String, name: String): List<Label>? {
 
 }
 
+fun render(model: Map<String?, Any?>?, templatePath: String?): String? {
+    return ThymeleafTemplateEngine().render(ModelAndView(model, templatePath))
+}
+
 fun main() {
     val ddb: AmazonDynamoDB = AmazonDynamoDBClientBuilder.defaultClient();
 
+    // staticFiles.location("/public")
 
-    // get("/labels") { req, res ->
-    //     {
-    //
-    //         val res = ddb.scan(sr)
-    //         var labels = mutableListOf<String>()
-    //         res.items.map { item ->
-    //                 labels.add(item["label"].toString())
-    //         }
-    //         labels
-    //     }
-    // }
+    get("/") { req, res ->
+        var model = mutableMapOf<String?, Any?>()
+        model.put("date", Date())
+        model.put("labels", (labels() as Map<String, Integer>).keys)
+
+        val slabels = req.queryParamOrDefault("q", "")
+        if (slabels != "") {
+            var all = getImageURLs(slabels, ddb)
+            model.put("urls", all)
+        }
+
+        render(model, "index");
+    }
+
+// declare this in a util-class
+//     public static String render(Map<String, Object> model, String templatePath) {
+//         return new VelocityTemplateEngine().render(new ModelAndView(model, templatePath));
+//     }
 
     get("/labels", { req, res ->
-        res.type("application/json")
-        val om = ObjectMapper()
-        om.readValue<Object>(File("labels.json"), Object::class.java)
+        getLabels(res)
         // Files.readString(Path.of("labels.json"))
 
         // var labels = mutableMapOf<String, Int>()
@@ -273,54 +288,64 @@ fun main() {
 
     get("/labels/query", { req, res ->
         val slabels = req.queryParamOrDefault("q", "")
-        val labels = slabels.split(",")
-        println(labels)
-
-
-        var all = mutableSetOf<String>()
-
-        // var allFiles = mutableMapOf<String, Set<String>>()
-
-
-        for (queryLabel in labels) {
-            var filenames = mutableSetOf<String>()
-            var last: MutableMap<String, AttributeValue>? = null
-            while (true) {
-                val cond = Condition().withAttributeValueList(AttributeValue(queryLabel))
-                    .withComparisonOperator(ComparisonOperator.EQ)
-                var sr = QueryRequest()
-                    .withTableName("photos")
-                    .withKeyConditions(mapOf("label" to cond))
-
-                if (last != null) {
-                    sr = sr.withExclusiveStartKey(last)
-                }
-
-                val res = ddb.query(sr)
-                res.items.map { item ->
-                    val av = item["filename"]!!
-                    val s = av.s.replace(" ", "+")
-                    val ff = "https://s3.eu-central-1.amazonaws.com/com.mlesniak.photos/${s}"
-                    filenames.add(ff)
-                }
-                if (res.lastEvaluatedKey != null) {
-                    last = res.lastEvaluatedKey
-                } else {
-                    break
-                }
-            }
-
-            all =
-                if (all.isEmpty()) {
-                    filenames
-                } else {
-                    all.intersect(filenames).toMutableSet()
-                }
-        }
+        var all = getImageURLs(slabels, ddb)
 
         res.type("application/json")
         all
     }, JsonTransformer())
+}
+
+private fun getImageURLs(slabels: String, ddb: AmazonDynamoDB): MutableSet<String> {
+    val labels = slabels.split(",")
+
+    var all = mutableSetOf<String>()
+
+    for (queryLabel in labels) {
+        var filenames = mutableSetOf<String>()
+        var last: MutableMap<String, AttributeValue>? = null
+        while (true) {
+            val cond = Condition().withAttributeValueList(AttributeValue(queryLabel))
+                .withComparisonOperator(ComparisonOperator.EQ)
+            var sr = QueryRequest()
+                .withTableName("photos")
+                .withKeyConditions(mapOf("label" to cond))
+
+            if (last != null) {
+                sr = sr.withExclusiveStartKey(last)
+            }
+
+            val res = ddb.query(sr)
+            res.items.map { item ->
+                val av = item["filename"]!!
+                val s = av.s.replace(" ", "+")
+                val ff = "https://s3.eu-central-1.amazonaws.com/com.mlesniak.photos/${s}"
+                filenames.add(ff)
+            }
+            if (res.lastEvaluatedKey != null) {
+                last = res.lastEvaluatedKey
+            } else {
+                break
+            }
+        }
+
+        all =
+            if (all.isEmpty()) {
+                filenames
+            } else {
+                all.intersect(filenames).toMutableSet()
+            }
+    }
+    return all
+}
+
+private fun getLabels(res: Response): Object? {
+    res.type("application/json")
+    return labels()
+}
+
+private fun labels(): Object? {
+    val om = ObjectMapper()
+    return om.readValue<Object>(File("labels.json"), Object::class.java)
 }
 
 class JsonTransformer : ResponseTransformer {
